@@ -1,0 +1,202 @@
+import React, { useState, useEffect } from 'react';
+import { Menu, X, Share2, Check } from 'lucide-react';
+
+interface NavbarProps {
+  lang: 'EN' | 'BN';
+  setLang: (l: 'EN' | 'BN') => void;
+  activeChapter?: 'video' | 'design';
+  onSelectChapter?: (chapter: 'video' | 'design') => void;
+  viewMode?: 'audience' | 'owner';
+  setViewMode?: (mode: 'audience' | 'owner') => void;
+}
+
+export const Navbar: React.FC<NavbarProps> = ({
+  lang,
+  setLang,
+  activeChapter,
+  onSelectChapter,
+  viewMode = 'audience',
+  setViewMode,
+}) => {
+  const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState('home');
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyLink = () => {
+    const portfolioUrl = 'https://sakibulhasanrahat.vercel.app';
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(portfolioUrl).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      });
+    }
+  };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 20);
+
+      const scrollPos = window.scrollY + window.innerHeight / 3;
+      const sections = ['home', 'featured-video', 'projects', 'graphic-design', 'contact'];
+      for (const sec of sections) {
+        const el = document.getElementById(sec);
+        if (el) {
+          const top = el.offsetTop;
+          const height = el.offsetHeight;
+          if (scrollPos >= top && scrollPos < top + height) {
+            setActiveSection(sec);
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const navLinks = [
+    { name: lang === 'EN' ? 'Home' : 'হোম', href: '#home', id: 'home' },
+    { name: lang === 'EN' ? 'Featured' : 'ফিচার্ড', href: '#featured-video', id: 'featured-video' },
+    { name: lang === 'EN' ? 'Videos' : 'ভিডিও', href: '#projects', id: 'projects' },
+    { name: lang === 'EN' ? 'Graphics' : 'গ্রাফিক্স', href: '#graphic-design', id: 'graphic-design' },
+    { name: lang === 'EN' ? 'Contact' : 'যোগাযোগ', href: '#contact', id: 'contact' },
+  ];
+
+  return (
+    <>
+      <div
+        className={`absolute top-4 sm:top-6 inset-x-0 z-50 px-4 sm:px-8 transition-all duration-300 ${
+          scrolled ? 'opacity-0 pointer-events-none -translate-y-6' : 'opacity-100'
+        }`}
+      >
+        <header className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
+          {/* Zone 1: Navigation Links - Clean text without any tray container */}
+          <nav className="hidden md:flex items-center gap-6 lg:gap-8">
+            <div className="flex items-center gap-5 lg:gap-7">
+              {navLinks.map((link) => (
+                <a
+                  key={link.id}
+                  href={link.href}
+                  onClick={() => {
+                    if (link.id === 'projects') onSelectChapter?.('video');
+                    if (link.id === 'graphic-design') onSelectChapter?.('design');
+                  }}
+                  className={`text-[13px] font-bold tracking-wide transition-all duration-200 click-bounce ${
+                    activeSection === link.id
+                      ? 'text-white font-extrabold drop-shadow-[0_2px_10px_rgba(255,255,255,0.4)] scale-105'
+                      : 'text-zinc-300 hover:text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]'
+                  }`}
+                >
+                  {link.name}
+                </a>
+              ))}
+            </div>
+          </nav>
+
+          {/* Zone 3: Actions - Language toggle & Share link */}
+          <div className="flex items-center gap-2 sm:gap-3 ml-auto md:ml-0">
+            {/* Share / Copy Portfolio Link */}
+            <button
+              onClick={handleCopyLink}
+              className="px-2 py-1 text-[11px] font-mono text-zinc-300 hover:text-gold transition-colors duration-200 flex items-center gap-1.5 cursor-pointer click-bounce drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]"
+              title="Copy portfolio link: sakibulhasanrahat.vercel.app"
+            >
+              {copied ? (
+                <>
+                  <Check size={12} className="text-emerald-400" />
+                  <span className="text-[10px] text-emerald-400 font-bold">
+                    {lang === 'EN' ? 'Link Copied!' : 'কপি হয়েছে!'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Share2 size={12} />
+                  <span className="hidden lg:inline text-[10px]">sakibulhasanrahat</span>
+                </>
+              )}
+            </button>
+
+            {/* Language Switch */}
+            <button
+              onClick={() => setLang(lang === 'EN' ? 'BN' : 'EN')}
+              className="px-2 py-1 text-[11px] font-mono font-bold text-zinc-300 hover:text-gold transition-colors cursor-pointer drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]"
+              title="Toggle Language / ভাষা পরিবর্তন"
+            >
+              {lang === 'EN' ? 'বাং' : 'EN'}
+            </button>
+
+            {/* Mobile Hamburger */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-1.5 text-white hover:text-gold transition-colors"
+              aria-label="Toggle navigation menu"
+            >
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
+        </header>
+      </div>
+
+      {/* Mobile Drawer */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-40 bg-black/95 backdrop-blur-xl flex flex-col justify-center items-center px-6 md:hidden animate-fadeIn">
+          <button
+            onClick={() => setMobileMenuOpen(false)}
+            className="absolute top-6 right-6 p-2 rounded-full bg-white/10 text-white"
+            aria-label="Close menu"
+          >
+            <X size={24} />
+          </button>
+
+          <div className="font-serif text-lg font-bold text-gold mb-8">
+            MD SAKIBUL HASAN RAHAT
+          </div>
+
+          <div className="flex flex-col items-center gap-6 text-center">
+            {navLinks.map((link) => (
+              <a
+                key={link.id}
+                href={link.href}
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  if (link.id === 'projects') onSelectChapter?.('video');
+                  if (link.id === 'graphic-design') onSelectChapter?.('design');
+                }}
+                className={`text-lg font-bold tracking-wide transition-colors ${
+                  activeSection === link.id ? 'text-white' : 'text-zinc-300 hover:text-white'
+                }`}
+              >
+                {link.name}
+              </a>
+            ))}
+          </div>
+
+          <div className="mt-10 flex flex-col items-center gap-4 w-full max-w-xs">
+            <a
+              href="https://wa.me/8801792031124"
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setMobileMenuOpen(false)}
+              className="w-full py-3 rounded-full bg-gold text-black font-bold text-sm text-center tracking-wider uppercase shadow-[0_0_25px_rgba(212,175,55,0.4)]"
+            >
+              WhatsApp Direct Chat
+            </a>
+
+            <button
+              onClick={() => {
+                setLang(lang === 'EN' ? 'BN' : 'EN');
+                setMobileMenuOpen(false);
+              }}
+              className="px-4 py-2 rounded-full bg-white/10 text-xs font-mono text-zinc-300"
+            >
+              Language: {lang === 'EN' ? 'English (Switch to বাংলা)' : 'বাংলা (Switch to English)'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
