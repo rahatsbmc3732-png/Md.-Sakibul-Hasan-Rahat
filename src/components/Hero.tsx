@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Upload, Link2, RotateCcw, Check, X, Sparkles, Image as ImageIcon, Edit3 } from 'lucide-react';
-import { getSiteContent, SiteContent } from '../utils/siteContent';
+import { getSiteContent, saveSiteContent, SiteContent } from '../utils/siteContent';
+import { uploadMediaFileToServer, uploadBase64ImageToServer, saveSiteDataToServer } from '../utils/apiSync';
 
 interface HeroProps {
   lang: 'EN' | 'BN';
@@ -57,6 +58,7 @@ export const Hero: React.FC<HeroProps> = ({ lang, isOwner = false }) => {
         localStorage.removeItem('rahat_custom_subtitle');
       }
     } catch {}
+    saveSiteDataToServer({ customSubtitle: trimmed });
     setIsEditingSubtitle(false);
   };
 
@@ -93,13 +95,40 @@ export const Hero: React.FC<HeroProps> = ({ lang, isOwner = false }) => {
     setIsPhotoModalOpen(true);
   };
 
-  // Listen for owner bar trigger
+  const selectedPhotoFileRef = useRef<File | null>(null);
+
+  // Listen for owner bar trigger and server sync
   useEffect(() => {
     const handleTrigger = () => {
       handleOpenModal();
     };
+    const handlePhotoUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      if (customEvent.detail) {
+        setProfileImg(customEvent.detail);
+      }
+    };
+    const handleServerSync = (e: Event) => {
+      const customEvent = e as CustomEvent<any>;
+      if (customEvent.detail) {
+        if (customEvent.detail.profileImage) {
+          setProfileImg(customEvent.detail.profileImage);
+          try { localStorage.setItem(STORAGE_KEY_PHOTO, customEvent.detail.profileImage); } catch {}
+        }
+        if (customEvent.detail.customSubtitle) {
+          setCustomSubtitle(customEvent.detail.customSubtitle);
+          try { localStorage.setItem('rahat_custom_subtitle', customEvent.detail.customSubtitle); } catch {}
+        }
+      }
+    };
     window.addEventListener('rahat:open-photo-modal', handleTrigger);
-    return () => window.removeEventListener('rahat:open-photo-modal', handleTrigger);
+    window.addEventListener('rahat:profile-photo-updated', handlePhotoUpdated);
+    window.addEventListener('rahat:data-synced-from-server', handleServerSync);
+    return () => {
+      window.removeEventListener('rahat:open-photo-modal', handleTrigger);
+      window.removeEventListener('rahat:profile-photo-updated', handlePhotoUpdated);
+      window.removeEventListener('rahat:data-synced-from-server', handleServerSync);
+    };
   }, [profileImg]);
 
   const handleFileChange = (file: File) => {
@@ -107,6 +136,7 @@ export const Hero: React.FC<HeroProps> = ({ lang, isOwner = false }) => {
       alert(lang === 'EN' ? 'Please select a valid image file (JPG, PNG, WebP).' : 'দয়া করে একটি সঠিক ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)।');
       return;
     }
+    selectedPhotoFileRef.current = file;
     const reader = new FileReader();
     reader.onload = (e) => {
       if (e.target?.result) {
@@ -118,28 +148,46 @@ export const Hero: React.FC<HeroProps> = ({ lang, isOwner = false }) => {
 
   const handleApplyUrl = () => {
     if (!inputUrl.trim()) return;
+    selectedPhotoFileRef.current = null;
     setTempPreview(inputUrl.trim());
   };
 
-  const handleSavePhoto = () => {
+  const handleSavePhoto = async () => {
     if (!tempPreview) return;
+    setSaveSuccess(true);
+    let finalUrl = tempPreview;
+
     try {
-      localStorage.setItem(STORAGE_KEY_PHOTO, tempPreview);
-      setProfileImg(tempPreview);
-      setSaveSuccess(true);
+      // 1. Upload to server for permanent hosting across refreshes & audience access
+      if (selectedPhotoFileRef.current) {
+        const serverUrl = await uploadMediaFileToServer(selectedPhotoFileRef.current, selectedPhotoFileRef.current.name);
+        if (serverUrl) finalUrl = serverUrl;
+      } else if (tempPreview.startsWith('data:')) {
+        const serverUrl = await uploadBase64ImageToServer(tempPreview, 'profile_photo');
+        if (serverUrl) finalUrl = serverUrl;
+      }
+
+      // 2. Persist locally and to server site data
+      localStorage.setItem(STORAGE_KEY_PHOTO, finalUrl);
+      setProfileImg(finalUrl);
+      await saveSiteDataToServer({ profileImage: finalUrl });
+      window.dispatchEvent(new CustomEvent('rahat:profile-photo-updated', { detail: finalUrl }));
+
       setTimeout(() => {
         setSaveSuccess(false);
         setIsPhotoModalOpen(false);
       }, 700);
     } catch {
+      localStorage.setItem(STORAGE_KEY_PHOTO, tempPreview);
       setProfileImg(tempPreview);
       setIsPhotoModalOpen(false);
     }
   };
 
-  const handleResetToOriginal = () => {
+  const handleResetToOriginal = async () => {
     try {
       localStorage.removeItem(STORAGE_KEY_PHOTO);
+      await saveSiteDataToServer({ profileImage: DEFAULT_PHOTO });
     } catch {}
     setProfileImg(DEFAULT_PHOTO);
     setTempPreview(DEFAULT_PHOTO);

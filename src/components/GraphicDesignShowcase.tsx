@@ -22,6 +22,12 @@ import {
   Edit3,
 } from 'lucide-react';
 import { getSiteContent, SiteContent } from '../utils/siteContent';
+import {
+  uploadMediaFileToServer,
+  uploadBase64ImageToServer,
+  saveSiteDataToServer,
+  fetchSiteDataFromServer,
+} from '../utils/apiSync';
 
 export interface GraphicDesignItem {
   id: string;
@@ -146,13 +152,41 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Save to localStorage whenever designs change
+  const uploadFileRef = useRef<File | null>(null);
+  const editDesignFileRef = useRef<File | null>(null);
+  const isHydratedRef = useRef<boolean>(false);
+
+  // Initial Server Hydration & Sync Listener
   useEffect(() => {
+    fetchSiteDataFromServer().then((data) => {
+      if (data && data.graphicDesignProjects && Array.isArray(data.graphicDesignProjects) && data.graphicDesignProjects.length > 0) {
+        setDesigns(data.graphicDesignProjects);
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.graphicDesignProjects));
+        } catch {}
+      }
+      isHydratedRef.current = true;
+    });
+
+    const handleSync = (e: Event) => {
+      const customEvent = e as CustomEvent<any>;
+      if (customEvent.detail && customEvent.detail.graphicDesignProjects && Array.isArray(customEvent.detail.graphicDesignProjects)) {
+        setDesigns(customEvent.detail.graphicDesignProjects);
+      }
+    };
+    window.addEventListener('rahat:data-synced-from-server', handleSync);
+    return () => window.removeEventListener('rahat:data-synced-from-server', handleSync);
+  }, []);
+
+  // Save to localStorage & server whenever designs change
+  useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(designs));
     } catch {
       // storage full or disabled
     }
+    saveSiteDataToServer({ graphicDesignProjects: designs });
   }, [designs]);
 
   // Handle ESC key for modals
@@ -198,6 +232,7 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
     setEditDesignTags(item.tags.join(', '));
     setEditDesignImage(item.imageUrl);
     setEditDesignSuccess(false);
+    editDesignFileRef.current = null;
   };
 
   const handleEditDesignFileSelect = (file: File) => {
@@ -205,6 +240,7 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
       alert(lang === 'EN' ? 'Please select an image file.' : 'দয়া করে একটি ইমেজ ফাইল নির্বাচন করুন।');
       return;
     }
+    editDesignFileRef.current = file;
     const reader = new FileReader();
     reader.onload = (ev) => {
       if (ev.target?.result) {
@@ -214,9 +250,24 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handleSaveEditDesign = (e: React.FormEvent) => {
+  const handleSaveEditDesign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingDesignItem) return;
+
+    let finalImageUrl = editDesignImage || editingDesignItem.imageUrl;
+    if (editDesignFileRef.current) {
+      try {
+        const serverUrl = await uploadMediaFileToServer(editDesignFileRef.current, editDesignFileRef.current.name);
+        if (serverUrl) finalImageUrl = serverUrl;
+      } catch (err) {
+        console.warn('Edit design server upload failed:', err);
+      }
+    } else if (editDesignImage && editDesignImage.startsWith('data:')) {
+      try {
+        const serverUrl = await uploadBase64ImageToServer(editDesignImage, 'graphic_design_edit');
+        if (serverUrl) finalImageUrl = serverUrl;
+      } catch {}
+    }
 
     const updatedItem: GraphicDesignItem = {
       ...editingDesignItem,
@@ -226,18 +277,27 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
       tags: editDesignTags
         ? editDesignTags.split(',').map((t) => t.trim()).filter(Boolean)
         : editingDesignItem.tags,
-      imageUrl: editDesignImage || editingDesignItem.imageUrl,
+      imageUrl: finalImageUrl,
     };
 
-    setDesigns((prev) => prev.map((d) => (d.id === editingDesignItem.id ? updatedItem : d)));
+    const nextDesigns = designs.map((d) => (d.id === editingDesignItem.id ? updatedItem : d));
+    setDesigns(nextDesigns);
     if (lightboxItem && lightboxItem.id === editingDesignItem.id) {
       setLightboxItem(updatedItem);
     }
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(nextDesigns));
+    } catch {}
+
+    await saveSiteDataToServer({
+      graphicDesignProjects: nextDesigns,
+    });
 
     setEditDesignSuccess(true);
     setTimeout(() => {
       setEditDesignSuccess(false);
       setEditingDesignItem(null);
+      editDesignFileRef.current = null;
     }, 700);
   };
 
@@ -246,6 +306,7 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
       alert(lang === 'EN' ? 'Please select an image file.' : 'দয়া করে একটি ইমেজ ফাইল নির্বাচন করুন।');
       return;
     }
+    uploadFileRef.current = file;
     const reader = new FileReader();
     reader.onload = (e) => {
       if (e.target?.result) {
@@ -266,18 +327,33 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
     }
   };
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
+  const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!previewImage) {
+    if (!previewImage && !uploadFileRef.current) {
       alert(lang === 'EN' ? 'Please select or drop an image.' : 'দয়া করে ছবি নির্বাচন করুন বা ড্রপ করুন।');
       return;
+    }
+
+    let finalImageUrl = previewImage || '';
+    if (uploadFileRef.current) {
+      try {
+        const serverUrl = await uploadMediaFileToServer(uploadFileRef.current, uploadFileRef.current.name);
+        if (serverUrl) finalImageUrl = serverUrl;
+      } catch (err) {
+        console.warn('Graphic design server upload failed:', err);
+      }
+    } else if (previewImage && previewImage.startsWith('data:')) {
+      try {
+        const serverUrl = await uploadBase64ImageToServer(previewImage, 'graphic_design');
+        if (serverUrl) finalImageUrl = serverUrl;
+      } catch {}
     }
 
     const newItem: GraphicDesignItem = {
       id: `design-${Date.now()}`,
       title: uploadTitle.trim() || (lang === 'EN' ? 'Untitled Graphic Design' : 'গ্রাফিক্স ডিজাইন প্রজেক্ট'),
       category: uploadCategory,
-      imageUrl: previewImage,
+      imageUrl: finalImageUrl,
       description: uploadDesc.trim() || (lang === 'EN' ? 'Custom graphic design project by MD Sakibul Hasan Rahat.' : 'এমডি সাকিবুল হাসান রাহাতের তৈরি কাস্টম গ্রাফিক্স ডিজাইন।'),
       tags: uploadTags
         ? uploadTags.split(',').map((t) => t.trim()).filter(Boolean)
@@ -286,11 +362,21 @@ export const GraphicDesignShowcase: React.FC<GraphicDesignShowcaseProps> = ({
       date: new Date().getFullYear().toString(),
     };
 
-    setDesigns([newItem, ...designs]);
+    const nextDesigns = [newItem, ...designs];
+    setDesigns(nextDesigns);
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(nextDesigns));
+    } catch {}
+
+    await saveSiteDataToServer({
+      graphicDesignProjects: nextDesigns,
+    });
+
     setUploadSuccess(true);
     setTimeout(() => {
       setUploadSuccess(false);
       setIsUploadModalOpen(false);
+      uploadFileRef.current = null;
       // Reset form
       setPreviewImage(null);
       setUploadTitle('');

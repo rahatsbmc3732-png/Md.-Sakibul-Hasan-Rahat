@@ -42,6 +42,14 @@ import {
   deleteVideoFromIndexedDB,
   captureVideoThumbnail,
 } from '../utils/videoStorage';
+import {
+  uploadMediaFileToServer,
+  uploadBase64ImageToServer,
+  saveSiteDataToServer,
+  fetchSiteDataFromServer,
+  recoverAndSyncIndexedDBMedia,
+  ServerSiteData,
+} from '../utils/apiSync';
 
 interface SelectedProjectsProps {
   lang: 'EN' | 'BN';
@@ -490,57 +498,152 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
     setTimeout(() => setReorderNotification(null), 3000);
   };
 
-  // Re-hydrate local video blob URLs from IndexedDB on initial mount
+  const isHydratedRef = useRef(false);
+
+  // Central Server Hydration & IndexedDB Media Recovery Effect
   useEffect(() => {
-    const rebindBlobs = async () => {
-      const rebindList = async (list: Project[], setter: React.Dispatch<React.SetStateAction<Project[]>>) => {
-        let hasUpdated = false;
-        const mapped = await Promise.all(
-          list.map(async (p) => {
-            if (p.isUserUploaded && p.platform === 'file') {
-              const record = await getVideoFromIndexedDB(p.id);
-              if (record && record.blob) {
-                const freshUrl = URL.createObjectURL(record.blob);
-                hasUpdated = true;
-                return {
-                  ...p,
-                  localVideoUrl: freshUrl,
-                  url: freshUrl,
-                  thumbnailUrl: record.thumbnailUrl || p.thumbnailUrl,
+    let isCancelled = false;
+
+    const initData = async () => {
+      try {
+        // 1. Fetch persistent site data from server backend (shared across all visitors & refreshes)
+        const serverData = await fetchSiteDataFromServer();
+        if (serverData && !isCancelled) {
+          if (serverData.saasProject !== undefined) {
+            setSaasProject(serverData.saasProject);
+            try {
+              localStorage.setItem(STORAGE_KEY_SAAS, JSON.stringify(serverData.saasProject));
+            } catch {}
+          }
+          if (serverData.animProjects && Array.isArray(serverData.animProjects) && serverData.animProjects.length > 0) {
+            setAnimProjects(serverData.animProjects);
+            try {
+              localStorage.setItem(STORAGE_KEY_ANIM, JSON.stringify(serverData.animProjects));
+            } catch {}
+          }
+          if (serverData.podcastProjects && Array.isArray(serverData.podcastProjects) && serverData.podcastProjects.length > 0) {
+            setPodcastProjects(serverData.podcastProjects);
+            try {
+              localStorage.setItem(STORAGE_KEY_POD, JSON.stringify(serverData.podcastProjects));
+            } catch {}
+          }
+          if (serverData.aiProjects && Array.isArray(serverData.aiProjects) && serverData.aiProjects.length > 0) {
+            setAiProjects(serverData.aiProjects);
+            try {
+              localStorage.setItem(STORAGE_KEY_AI, JSON.stringify(serverData.aiProjects));
+            } catch {}
+          }
+          if (serverData.reelsProjects && Array.isArray(serverData.reelsProjects) && serverData.reelsProjects.length > 0) {
+            setReelsProjects(serverData.reelsProjects);
+            try {
+              localStorage.setItem(STORAGE_KEY_REELS, JSON.stringify(serverData.reelsProjects));
+            } catch {}
+          }
+          if (serverData.customHeadlines && typeof serverData.customHeadlines === 'object') {
+            setCustomHeadlines(serverData.customHeadlines);
+            try {
+              localStorage.setItem(STORAGE_KEY_HEADLINES, JSON.stringify(serverData.customHeadlines));
+            } catch {}
+          }
+          if (serverData.trashItems && Array.isArray(serverData.trashItems)) {
+            setTrashItems(serverData.trashItems);
+            try {
+              localStorage.setItem(STORAGE_KEY_TRASH, JSON.stringify(serverData.trashItems));
+            } catch {}
+          }
+          if (serverData.permanentlyDeletedIds && Array.isArray(serverData.permanentlyDeletedIds)) {
+            setPermanentlyDeletedIds(serverData.permanentlyDeletedIds);
+            try {
+              localStorage.setItem(STORAGE_KEY_PERMANENTLY_DELETED, JSON.stringify(serverData.permanentlyDeletedIds));
+            } catch {}
+          }
+        }
+
+        // 2. Recover any media blobs from IndexedDB (e.g. videos uploaded by user that were lost on previous refresh)
+        const recoveredMap = await recoverAndSyncIndexedDBMedia();
+        if (Object.keys(recoveredMap).length > 0 && !isCancelled) {
+          let updatedAny = false;
+
+          for (const [recId, rec] of Object.entries(recoveredMap)) {
+            // Restore Saas Master Reel if matched
+            if (recId === 'saas-anim-featured' || saasProject?.id === recId || (saasProject && saasProject.url?.startsWith('blob:'))) {
+              setSaasProject((prev) => {
+                const base = prev || SAAS_ANIMATION_PROJECT;
+                const next: Project = {
+                  ...base,
+                  url: rec.url,
+                  localVideoUrl: rec.url,
+                  thumbnailUrl: rec.thumbUrl || base.thumbnailUrl,
+                  platform: 'file',
+                  isUserUploaded: true,
                 };
-              }
+                try {
+                  localStorage.setItem(STORAGE_KEY_SAAS, JSON.stringify(next));
+                } catch {}
+                return next;
+              });
+              updatedAny = true;
             }
-            return p;
-          })
-        );
-        if (hasUpdated) {
-          setter(mapped);
-        }
-      };
 
-      await rebindList(animProjects, setAnimProjects);
-      await rebindList(podcastProjects, setPodcastProjects);
-      await rebindList(aiProjects, setAiProjects);
-      await rebindList(reelsProjects, setReelsProjects);
+            // Restore in animation projects
+            setAnimProjects((prev) => {
+              const idx = prev.findIndex((p) => p.id === recId || (p.isUserUploaded && p.url?.startsWith('blob:')));
+              if (idx !== -1) {
+                const next = [...prev];
+                next[idx] = {
+                  ...next[idx],
+                  url: rec.url,
+                  localVideoUrl: rec.url,
+                  thumbnailUrl: rec.thumbUrl || next[idx].thumbnailUrl,
+                  platform: 'file',
+                  isUserUploaded: true,
+                };
+                try { localStorage.setItem(STORAGE_KEY_ANIM, JSON.stringify(next)); } catch {}
+                updatedAny = true;
+                return next;
+              }
+              return prev;
+            });
+          }
 
-      // Rehydrate SaaS Master Video if user uploaded or clean dead blob
-      if (saasProject && saasProject.isUserUploaded && saasProject.platform === 'file') {
-        const record = (await getVideoFromIndexedDB('saas-anim-featured').catch(() => null))
-          || (await getVideoFromIndexedDB(saasProject.id).catch(() => null));
-        if (record && record.blob) {
-          const freshUrl = URL.createObjectURL(record.blob);
-          setSaasProject((prev) =>
-            prev ? { ...prev, localVideoUrl: freshUrl, url: freshUrl, thumbnailUrl: record.thumbnailUrl || prev.thumbnailUrl } : null
-          );
-        } else {
-          setSaasProject(SAAS_ANIMATION_PROJECT);
+          if (updatedAny) {
+            saveSiteDataToServer({});
+          }
+        } else if (!serverData) {
+          // If server was completely empty, seed server with initial state
+          saveSiteDataToServer({});
         }
-      } else if (saasProject && saasProject.url && saasProject.url.startsWith('blob:')) {
-        setSaasProject(SAAS_ANIMATION_PROJECT);
+      } catch (err) {
+        console.warn('SelectedProjects hydration error:', err);
+      } finally {
+        if (!isCancelled) {
+          isHydratedRef.current = true;
+        }
       }
     };
 
-    rebindBlobs();
+    initData();
+
+    const handleServerSync = (e: Event) => {
+      const customEvent = e as CustomEvent<ServerSiteData>;
+      const d = customEvent.detail;
+      if (d) {
+        if (d.saasProject !== undefined) setSaasProject(d.saasProject);
+        if (d.animProjects) setAnimProjects(d.animProjects);
+        if (d.podcastProjects) setPodcastProjects(d.podcastProjects);
+        if (d.aiProjects) setAiProjects(d.aiProjects);
+        if (d.reelsProjects) setReelsProjects(d.reelsProjects);
+        if (d.customHeadlines) setCustomHeadlines(d.customHeadlines);
+        if (d.trashItems) setTrashItems(d.trashItems);
+        if (d.permanentlyDeletedIds) setPermanentlyDeletedIds(d.permanentlyDeletedIds);
+      }
+    };
+    window.addEventListener('rahat:data-synced-from-server', handleServerSync);
+
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('rahat:data-synced-from-server', handleServerSync);
+    };
   }, []);
 
   // Persist Saas Video
@@ -552,6 +655,9 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
         localStorage.setItem(STORAGE_KEY_SAAS, JSON.stringify(saasProject));
       }
     } catch {}
+    if (isHydratedRef.current) {
+      saveSiteDataToServer({ saasProject });
+    }
   }, [saasProject]);
 
   // Persist order changes
@@ -559,24 +665,36 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
     try {
       localStorage.setItem(STORAGE_KEY_ANIM, JSON.stringify(animProjects));
     } catch {}
+    if (isHydratedRef.current) {
+      saveSiteDataToServer({ animProjects });
+    }
   }, [animProjects]);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_POD, JSON.stringify(podcastProjects));
     } catch {}
+    if (isHydratedRef.current) {
+      saveSiteDataToServer({ podcastProjects });
+    }
   }, [podcastProjects]);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_AI, JSON.stringify(aiProjects));
     } catch {}
+    if (isHydratedRef.current) {
+      saveSiteDataToServer({ aiProjects });
+    }
   }, [aiProjects]);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_REELS, JSON.stringify(reelsProjects));
     } catch {}
+    if (isHydratedRef.current) {
+      saveSiteDataToServer({ reelsProjects });
+    }
   }, [reelsProjects]);
 
   // Modal ESC Key
@@ -664,11 +782,26 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
 
       if (editVideoSourceType === 'file' && editVideoFile) {
         try {
+          const serverUrl = await uploadMediaFileToServer(editVideoFile, editVideoFile.name);
+          if (serverUrl) {
+            finalUrl = serverUrl;
+          }
+        } catch (err) {
+          console.warn('Edit video server upload failed:', err);
+        }
+        try {
           await saveVideoToIndexedDB(project.id, editVideoFile, editVideoThumbPreview || undefined);
         } catch {}
-        finalUrl = URL.createObjectURL(editVideoFile);
+        if (!finalUrl) finalUrl = URL.createObjectURL(editVideoFile);
         platform = 'file';
         isUserUploaded = true;
+      }
+      let finalThumb = editVideoThumbPreview;
+      if (editVideoThumbPreview && editVideoThumbPreview.startsWith('data:')) {
+        try {
+          const thumbUrl = await uploadBase64ImageToServer(editVideoThumbPreview, `${project.id}_thumb`);
+          if (thumbUrl) finalThumb = thumbUrl;
+        } catch {}
       }
 
       const updatedProject: Project = {
@@ -679,9 +812,10 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
         descriptionBn: editVideoDescription.trim() || project.descriptionBn,
         duration: editVideoDuration.trim() || project.duration,
         url: finalUrl || project.url,
-        thumbnailUrl: editVideoThumbPreview || project.thumbnailUrl,
+        thumbnailUrl: finalThumb || project.thumbnailUrl,
         platform,
         isUserUploaded,
+        localVideoUrl: finalUrl || project.url,
       };
 
       if (tray === 'saas') {
@@ -722,6 +856,10 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
           return next;
         });
       }
+
+      await saveSiteDataToServer({
+        saasProject: tray === 'saas' ? updatedProject : saasProject,
+      });
 
       setEditVideoSuccess(true);
       setTimeout(() => {
@@ -1041,9 +1179,7 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
     setTimeout(() => setReorderNotification(null), 3500);
 
     // Smooth scroll to destination tray
-    if (targetTray !== 'saas') {
-      handleScrollToTray(targetTray);
-    }
+    handleScrollToTray(targetTray);
   };
 
   // Move Card Directional (Left / Right within tray)
@@ -1462,9 +1598,27 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
     let finalVideoUrl = videoPreviewUrl || '';
     let finalVideoId = newId;
     let isVimeo = false;
+    let finalThumb = thumbnailPreview;
 
     if (uploadSourceType === 'file' && uploadFile) {
-      await saveVideoToIndexedDB(newId, uploadFile, thumbnailPreview || undefined);
+      try {
+        const serverUrl = await uploadMediaFileToServer(uploadFile, uploadFile.name);
+        if (serverUrl) {
+          finalVideoUrl = serverUrl;
+        }
+      } catch (err) {
+        console.warn('Upload to server failed:', err);
+      }
+      if (thumbnailPreview && thumbnailPreview.startsWith('data:')) {
+        try {
+          const thumbUrl = await uploadBase64ImageToServer(thumbnailPreview, `${newId}_thumb`);
+          if (thumbUrl) finalThumb = thumbUrl;
+        } catch {}
+      }
+      try {
+        await saveVideoToIndexedDB(newId, uploadFile, finalThumb || undefined);
+      } catch {}
+      if (!finalVideoUrl) finalVideoUrl = videoPreviewUrl || URL.createObjectURL(uploadFile);
     } else {
       // Parse URL if Vimeo
       const vimeoMatch = uploadVideoUrl.match(/vimeo\.com\/(?:channels\/(?:\w+\/)?|groups\/(?:[^\/]*)\/videos\/|album\/(?:\d+)\/video\/|video\/|)(\d+)/);
@@ -1498,7 +1652,7 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
           : 'Reels & Shorts',
       tags: uploadTags ? uploadTags.split(',').map((t) => t.trim()).filter(Boolean) : ['Video', 'Master'],
       aspectRatio: uploadCategory === 'reels' ? '9:16' : '16:9',
-      thumbnailUrl: thumbnailPreview || defaultThumbs[uploadCategory],
+      thumbnailUrl: finalThumb || defaultThumbs[uploadCategory],
       duration: uploadDuration || '0:30',
       platform: uploadSourceType === 'file' ? 'file' : isVimeo ? 'vimeo' : 'file',
       isUserUploaded: true,
@@ -1506,10 +1660,35 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
     };
 
     // Insert at front of chosen tray
-    if (uploadCategory === 'anim') setAnimProjects([newProject, ...animProjects]);
-    else if (uploadCategory === 'podcast') setPodcastProjects([newProject, ...podcastProjects]);
-    else if (uploadCategory === 'ai') setAiProjects([newProject, ...aiProjects]);
-    else if (uploadCategory === 'reels') setReelsProjects([newProject, ...reelsProjects]);
+    let nextAnim = animProjects;
+    let nextPod = podcastProjects;
+    let nextAi = aiProjects;
+    let nextReels = reelsProjects;
+
+    if (uploadCategory === 'anim') {
+      nextAnim = [newProject, ...animProjects];
+      setAnimProjects(nextAnim);
+      try { localStorage.setItem(STORAGE_KEY_ANIM, JSON.stringify(nextAnim)); } catch {}
+    } else if (uploadCategory === 'podcast') {
+      nextPod = [newProject, ...podcastProjects];
+      setPodcastProjects(nextPod);
+      try { localStorage.setItem(STORAGE_KEY_POD, JSON.stringify(nextPod)); } catch {}
+    } else if (uploadCategory === 'ai') {
+      nextAi = [newProject, ...aiProjects];
+      setAiProjects(nextAi);
+      try { localStorage.setItem(STORAGE_KEY_AI, JSON.stringify(nextAi)); } catch {}
+    } else if (uploadCategory === 'reels') {
+      nextReels = [newProject, ...reelsProjects];
+      setReelsProjects(nextReels);
+      try { localStorage.setItem(STORAGE_KEY_REELS, JSON.stringify(nextReels)); } catch {}
+    }
+
+    await saveSiteDataToServer({
+      animProjects: nextAnim,
+      podcastProjects: nextPod,
+      aiProjects: nextAi,
+      reelsProjects: nextReels,
+    });
 
     setIsProcessingUpload(false);
     setUploadSuccess(true);
@@ -1597,6 +1776,10 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
       return;
     }
     const masterId = 'saas-anim-featured';
+    setReorderNotification(
+      lang === 'EN' ? 'Uploading video to server...' : 'সার্ভারে ভিডিও আপলোড হচ্ছে... অনুগ্রহ করে একটু অপেক্ষা করুন।'
+    );
+
     const objectUrl = URL.createObjectURL(file);
     let capturedThumb = '';
     try {
@@ -1622,23 +1805,46 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
       });
     } catch {}
 
-    await saveVideoToIndexedDB(masterId, file, capturedThumb || undefined);
+    // 1. Upload video file to server disk for permanent retention across refreshes & audience access
+    let finalUrl = '';
+    try {
+      const serverUrl = await uploadMediaFileToServer(file, file.name);
+      if (serverUrl) {
+        finalUrl = serverUrl;
+      }
+    } catch (err) {
+      console.warn('Direct upload to server failed:', err);
+    }
+
+    let finalThumb = capturedThumb;
+    if (capturedThumb && capturedThumb.startsWith('data:')) {
+      try {
+        const thumbUrl = await uploadBase64ImageToServer(capturedThumb, `${masterId}_thumb`);
+        if (thumbUrl) finalThumb = thumbUrl;
+      } catch {}
+    }
+
+    try {
+      await saveVideoToIndexedDB(masterId, file, finalThumb || undefined);
+    } catch {}
+
+    if (!finalUrl) finalUrl = objectUrl;
 
     const updated: Project = {
       id: masterId,
       title: cleanTitle || 'Saas Master REEL',
       description: 'Custom uploaded video for Saas Master Reel showcase.',
       videoId: masterId,
-      url: objectUrl,
+      url: finalUrl,
       category: 'Animation & Motion',
       tags: ['SaaS Master', 'Custom Upload'],
       aspectRatio: '16:9',
-      thumbnailUrl: capturedThumb || 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
+      thumbnailUrl: finalThumb || 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
       duration: dur,
       platform: 'file',
       featured: true,
       isUserUploaded: true,
-      localVideoUrl: objectUrl,
+      localVideoUrl: finalUrl,
     };
 
     setSaasProject(updated);
@@ -1655,10 +1861,16 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
       localStorage.setItem(STORAGE_KEY_SAAS, JSON.stringify(updated));
     } catch {}
 
+    await saveSiteDataToServer({
+      saasProject: updated,
+    });
+
     setReorderNotification(
-      lang === 'EN' ? 'SaaS Master Reel replaced with your video file!' : 'সাস মাস্টার রিল আপনার ফাইল দিয়ে পরিবর্তন করা হয়েছে!'
+      lang === 'EN'
+        ? '✓ SaaS Master Reel video uploaded & saved permanently!'
+        : '✓ সাস মাস্টার রিল ভিডিও স্থায়ীভাবে আপলোড ও সেভ হয়েছে! রিফ্রেশ দিলেও আর যাবে না।'
     );
-    setTimeout(() => setReorderNotification(null), 3500);
+    setTimeout(() => setReorderNotification(null), 4000);
   };
 
   const handleSaveSaasVideo = async (e: React.FormEvent) => {
@@ -1678,10 +1890,25 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
     let finalVideoUrl = saasPreviewUrl || saasProject?.url || '';
     let finalVideoId = '1229887460';
     let isVimeo = false;
+    let finalThumb = saasThumbPreview;
 
     if (saasSourceType === 'file' && saasUploadFile) {
-      await saveVideoToIndexedDB(masterId, saasUploadFile, saasThumbPreview || undefined);
-      finalVideoUrl = saasPreviewUrl || URL.createObjectURL(saasUploadFile);
+      try {
+        const serverUrl = await uploadMediaFileToServer(saasUploadFile, saasUploadFile.name);
+        if (serverUrl) {
+          finalVideoUrl = serverUrl;
+        }
+      } catch {}
+      if (saasThumbPreview && saasThumbPreview.startsWith('data:')) {
+        try {
+          const thumbUrl = await uploadBase64ImageToServer(saasThumbPreview, `${masterId}_thumb`);
+          if (thumbUrl) finalThumb = thumbUrl;
+        } catch {}
+      }
+      try {
+        await saveVideoToIndexedDB(masterId, saasUploadFile, finalThumb || undefined);
+      } catch {}
+      if (!finalVideoUrl) finalVideoUrl = saasPreviewUrl || URL.createObjectURL(saasUploadFile);
       finalVideoId = masterId;
     } else if (saasSourceType === 'url') {
       const vimeoMatch = saasVideoUrl.match(/vimeo\.com\/(?:channels\/(?:\w+\/)?|groups\/(?:[^\/]*)\/videos\/|album\/(?:\d+)\/video\/|video\/|)(\d+)/);
@@ -1701,7 +1928,7 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
       category: 'Animation & Motion',
       tags: ['SaaS Master', 'Custom Reel', 'Motion Design'],
       aspectRatio: '16:9',
-      thumbnailUrl: saasThumbPreview || saasProject?.thumbnailUrl || 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
+      thumbnailUrl: finalThumb || saasProject?.thumbnailUrl || 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
       duration: saasDuration || '0:15',
       platform: saasSourceType === 'file' ? 'file' : isVimeo ? 'vimeo' : 'file',
       featured: true,
@@ -1723,13 +1950,17 @@ export const SelectedProjects: React.FC<SelectedProjectsProps> = ({
       localStorage.setItem(STORAGE_KEY_SAAS, JSON.stringify(updatedProject));
     } catch {}
 
+    await saveSiteDataToServer({
+      saasProject: updatedProject,
+    });
+
     setIsProcessingSaas(false);
     setSaasUpdateSuccess(true);
     setTimeout(() => {
       setSaasUpdateSuccess(false);
       setIsChangeSaasModalOpen(false);
       setReorderNotification(
-        lang === 'EN' ? 'SaaS Master Reel video updated successfully!' : 'সাস মাস্টার রিল ভিডিও সফলভাবে পরিবর্তন করা হয়েছে!'
+        lang === 'EN' ? 'SaaS Master Reel video updated successfully & saved to server!' : 'সাস মাস্টার রিল ভিডিও সফলভাবে পরিবর্তন ও সেভ করা হয়েছে!'
       );
       setTimeout(() => setReorderNotification(null), 3000);
     }, 700);

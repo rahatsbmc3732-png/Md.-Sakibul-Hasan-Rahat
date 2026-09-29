@@ -1,3 +1,5 @@
+import { saveSiteDataToServer } from './apiSync';
+
 export interface SiteContent {
   nameFirst: string;
   nameLast: string;
@@ -51,6 +53,18 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 
 const STORAGE_KEY = 'rahat_master_site_content_v1';
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('rahat:data-synced-from-server', (e: Event) => {
+    const custom = e as CustomEvent<any>;
+    if (custom.detail && custom.detail.siteContent && typeof custom.detail.siteContent === 'object') {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(custom.detail.siteContent));
+        window.dispatchEvent(new CustomEvent('rahat:site-content-updated', { detail: custom.detail.siteContent }));
+      } catch {}
+    }
+  });
+}
+
 export const getSiteContent = (): SiteContent => {
   try {
     if (typeof window !== 'undefined') {
@@ -72,6 +86,7 @@ export const saveSiteContent = (content: Partial<SiteContent>): SiteContent => {
       window.dispatchEvent(new CustomEvent('rahat:site-content-updated', { detail: updated }));
     }
   } catch {}
+  saveSiteDataToServer({ siteContent: updated });
   return updated;
 };
 
@@ -82,5 +97,6 @@ export const resetSiteContent = (): SiteContent => {
       window.dispatchEvent(new CustomEvent('rahat:site-content-updated', { detail: DEFAULT_SITE_CONTENT }));
     }
   } catch {}
+  saveSiteDataToServer({ siteContent: DEFAULT_SITE_CONTENT });
   return DEFAULT_SITE_CONTENT;
 };

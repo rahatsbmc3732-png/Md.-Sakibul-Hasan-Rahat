@@ -11,6 +11,10 @@ import { StudioEditorPro } from './components/StudioEditorPro';
 import { MasterSiteEditorModal } from './components/MasterSiteEditorModal';
 import { Footer } from './components/Footer';
 import {
+  fetchSiteDataFromServer,
+  recoverAndSyncIndexedDBMedia,
+} from './utils/apiSync';
+import {
   Move,
   Check,
   Eye,
@@ -34,9 +38,9 @@ export default function App() {
   const [portfolioChapter, setPortfolioChapter] = useState<'video' | 'design'>('video');
 
   // ═════════════════════════════════════════════════════════════════════════
-  // SECURE OWNER MODE (সাকিবুল হাসান রাহাতের এডিটিং ও কাস্টমাইজেশন কন্ট্রোল)
-  // ডিফল্টভাবে ওনার মোড চালু থাকবে যাতে আপনি সব এডিট বাটন তাৎক্ষণিক দেখতে পারেন।
-  // পাবলিশ করার পর "লক করুন" বাটনে ক্লিক করে দর্শকদের জন্য লক করে রাখতে পারবেন।
+  // SECURE OWNER MODE vs AUDIENCE MODE (সাকিবুল হাসান রাহাতের সিকিউর অ্যাক্সেস)
+  // সাধারণ দর্শক বা অডিয়েন্সের জন্য সম্পূর্ণ লকড ভিউ (কোনো এডিট/ডিলিট অপশন থাকবে না)।
+  // ওনার সাকিবুল হাসান রাহাত পিন (1234) বা গোপন লিঙ্ক দিয়ে আনলক করে এডিট করতে পারবেন।
   // ═════════════════════════════════════════════════════════════════════════
   const [isOwnerAuthenticated, setIsOwnerAuthenticated] = useState<boolean>(() => {
     try {
@@ -52,31 +56,54 @@ export default function App() {
         if (sessionLocked) {
           return false;
         }
-        // Always default to TRUE so Rahat immediately sees all editing controls!
-        localStorage.removeItem('rahat_owner_locked');
-        return true;
+        // Remembered owner authentication on this specific device/browser
+        return localStorage.getItem('rahat_owner_auth') === 'true';
       }
     } catch {}
-    return true;
+    return false;
   });
 
   const [viewMode, setViewMode] = useState<'audience' | 'owner'>(() => {
     try {
       if (typeof window !== 'undefined') {
+        const hash = window.location.hash.toLowerCase();
+        const search = window.location.search.toLowerCase();
+        if (hash === '#owner' || hash === '#admin' || search.includes('owner=true') || search.includes('admin=rahat')) {
+          return 'owner';
+        }
         const sessionLocked = sessionStorage.getItem('rahat_session_locked') === 'true';
         if (sessionLocked) return 'audience';
+        const isAuth = localStorage.getItem('rahat_owner_auth') === 'true';
         const saved = localStorage.getItem('rahat_view_mode');
-        if (saved === 'audience') return 'audience';
-        return 'owner';
+        if (isAuth && saved === 'owner') return 'owner';
+        if (isAuth && !saved) return 'owner';
+        return 'audience';
       }
     } catch {}
-    return 'owner';
+    return 'audience';
   });
 
   const [isOwnerLoginModalOpen, setIsOwnerLoginModalOpen] = useState(false);
   const [isMasterEditorOpen, setIsMasterEditorOpen] = useState(false);
   const [ownerPasscode, setOwnerPasscode] = useState('');
   const [loginError, setLoginError] = useState(false);
+
+  // Initial Server Fetch & IndexedDB Media Recovery
+  useEffect(() => {
+    fetchSiteDataFromServer().then(async (serverData) => {
+      if (serverData) {
+        window.dispatchEvent(new CustomEvent('rahat:data-synced-from-server', { detail: serverData }));
+      }
+      try {
+        const recovered = await recoverAndSyncIndexedDBMedia();
+        if (Object.keys(recovered).length > 0) {
+          window.dispatchEvent(new CustomEvent('rahat:media-recovered-from-db', { detail: recovered }));
+        }
+      } catch (err) {
+        console.warn('IndexedDB media recovery error:', err);
+      }
+    });
+  }, []);
 
   // Shortcut key listener (Ctrl + Shift + O) or URL hash change
   useEffect(() => {
@@ -100,7 +127,7 @@ export default function App() {
         try {
           sessionStorage.removeItem('rahat_session_locked');
           localStorage.setItem('rahat_owner_auth', 'true');
-          localStorage.removeItem('rahat_owner_locked');
+          localStorage.setItem('rahat_view_mode', 'owner');
         } catch {}
       }
     };
@@ -119,16 +146,14 @@ export default function App() {
 
   const handleUnlockOwner = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    // Default PIN: 1234 or direct unlock
     const pin = ownerPasscode.trim();
-    if (pin === '1234' || pin === 'rahat' || pin === 'admin' || pin === '') {
+    if (pin === '1234' || pin === 'rahat' || pin === 'admin' || pin === 'sakib') {
       setIsOwnerAuthenticated(true);
       setViewMode('owner');
       try {
         sessionStorage.removeItem('rahat_session_locked');
         localStorage.setItem('rahat_owner_auth', 'true');
         localStorage.setItem('rahat_view_mode', 'owner');
-        localStorage.removeItem('rahat_owner_locked');
       } catch {}
       setIsOwnerLoginModalOpen(false);
       setOwnerPasscode('');
