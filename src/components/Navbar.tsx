@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Share2, Check } from 'lucide-react';
+import { Share2, Check } from 'lucide-react';
 
 interface NavbarProps {
   lang: 'EN' | 'BN';
@@ -19,7 +19,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   setViewMode,
 }) => {
   const [scrolled, setScrolled] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
   const [copied, setCopied] = useState(false);
 
@@ -73,8 +72,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         }`}
       >
         <header className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
-          {/* Zone 1: Navigation Links - Clean text without any tray container */}
-          <nav className="hidden md:flex items-center gap-6 lg:gap-8">
+          {/* Zone 1: Navigation Links - Clean desktop links always visible */}
+          <nav className="flex items-center gap-6 lg:gap-8">
             <div className="flex items-center gap-5 lg:gap-7">
               {navLinks.map((link) => (
                 <a
@@ -97,7 +96,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Zone 3: Actions - Language toggle & Share link */}
-          <div className="flex items-center gap-2 sm:gap-3 ml-auto md:ml-0">
+          <div className="flex items-center gap-2 sm:gap-3">
             {/* Share / Copy Portfolio Link */}
             <button
               onClick={handleCopyLink}
@@ -114,7 +113,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               ) : (
                 <>
                   <Share2 size={12} />
-                  <span className="hidden lg:inline text-[10px]">sakibulhasanrahat</span>
+                  <span className="inline text-[10px]">sakibulhasanrahat</span>
                 </>
               )}
             </button>
@@ -127,76 +126,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               {lang === 'EN' ? 'বাং' : 'EN'}
             </button>
-
-            {/* Mobile Hamburger */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-1.5 text-white hover:text-gold transition-colors"
-              aria-label="Toggle navigation menu"
-            >
-              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
           </div>
         </header>
       </div>
-
-      {/* Mobile Drawer */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-40 bg-black/95 backdrop-blur-xl flex flex-col justify-center items-center px-6 md:hidden animate-fadeIn">
-          <button
-            onClick={() => setMobileMenuOpen(false)}
-            className="absolute top-6 right-6 p-2 rounded-full bg-white/10 text-white"
-            aria-label="Close menu"
-          >
-            <X size={24} />
-          </button>
-
-          <div className="font-serif text-lg font-bold text-gold mb-8">
-            MD SAKIBUL HASAN RAHAT
-          </div>
-
-          <div className="flex flex-col items-center gap-6 text-center">
-            {navLinks.map((link) => (
-              <a
-                key={link.id}
-                href={link.href}
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  if (link.id === 'projects') onSelectChapter?.('video');
-                  if (link.id === 'graphic-design') onSelectChapter?.('design');
-                }}
-                className={`text-lg font-bold tracking-wide transition-colors ${
-                  activeSection === link.id ? 'text-white' : 'text-zinc-300 hover:text-white'
-                }`}
-              >
-                {link.name}
-              </a>
-            ))}
-          </div>
-
-          <div className="mt-10 flex flex-col items-center gap-4 w-full max-w-xs">
-            <a
-              href="https://wa.me/8801792031124"
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => setMobileMenuOpen(false)}
-              className="w-full py-3 rounded-full bg-gold text-black font-bold text-sm text-center tracking-wider uppercase shadow-[0_0_25px_rgba(212,175,55,0.4)]"
-            >
-              WhatsApp Direct Chat
-            </a>
-
-            <button
-              onClick={() => {
-                setLang(lang === 'EN' ? 'BN' : 'EN');
-                setMobileMenuOpen(false);
-              }}
-              className="px-4 py-2 rounded-full bg-white/10 text-xs font-mono text-zinc-300"
-            >
-              Language: {lang === 'EN' ? 'English (Switch to বাংলা)' : 'বাংলা (Switch to English)'}
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 };

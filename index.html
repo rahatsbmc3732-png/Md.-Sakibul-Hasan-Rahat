@@ -2,22 +2,23 @@
 <html lang="en" class="dark scroll-smooth">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" id="viewport-meta" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" id="viewport-meta" content="width=1200, user-scalable=yes" />
     <script>
       (function() {
         function enforceDesktopView() {
           var meta = document.getElementById('viewport-meta');
           if (!meta) return;
-          var screenW = window.screen.width;
+          var screenW = window.screen.width || window.innerWidth || 1200;
           if (screenW < 1200) {
             var scale = (screenW / 1200).toFixed(4);
-            meta.setAttribute('content', 'width=1200, initial-scale=' + scale + ', maximum-scale=3.0, user-scalable=yes');
+            meta.setAttribute('content', 'width=1200, initial-scale=' + scale + ', minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
           } else {
-            meta.setAttribute('content', 'width=device-width, initial-scale=1.0');
+            meta.setAttribute('content', 'width=1200, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');
           }
         }
         enforceDesktopView();
         window.addEventListener('resize', enforceDesktopView);
+        window.addEventListener('orientationchange', enforceDesktopView);
       })();
     </script>
     <title>MD Sakibul Hasan Rahat - Video Editor & Motion Designer Portfolio</title>

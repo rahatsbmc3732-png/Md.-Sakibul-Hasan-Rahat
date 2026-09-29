@@ -88,6 +88,31 @@ export default function App() {
   const [ownerPasscode, setOwnerPasscode] = useState('');
   const [loginError, setLoginError] = useState(false);
 
+  // Desktop View Mode auto-scaling for mobile devices & iframes narrower than 1200px
+  // মোবাইলে যাতে ডেস্কটপ মোডের মতো হুবহু সব লেআউট ও ভিডিও দেখা যায়
+  const [scaleRatio, setScaleRatio] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1200) {
+      return window.innerWidth / 1200;
+    }
+    return 1;
+  });
+
+  useEffect(() => {
+    const computeScale = () => {
+      if (typeof window !== 'undefined') {
+        const width = window.innerWidth;
+        if (width < 1200) {
+          setScaleRatio(width / 1200);
+        } else {
+          setScaleRatio(1);
+        }
+      }
+    };
+    computeScale();
+    window.addEventListener('resize', computeScale);
+    return () => window.removeEventListener('resize', computeScale);
+  }, []);
+
   // Initial Server Fetch & IndexedDB Media Recovery
   useEffect(() => {
     fetchSiteDataFromServer().then(async (serverData) => {
@@ -218,9 +243,22 @@ export default function App() {
   // ONLY if owner is authenticated AND viewMode is 'owner'
   const isOwnerActive = isOwnerAuthenticated && viewMode === 'owner';
 
+  const isScaled = scaleRatio < 1;
+
   return (
     <div
-      className={`relative min-h-screen bg-[#0a0a0a] text-[#e5e5e5] overflow-x-hidden selection:bg-gold selection:text-black theme-${activeTheme}`}
+      style={
+        isScaled
+          ? ({
+              width: '1200px',
+              minWidth: '1200px',
+              zoom: scaleRatio,
+            } as React.CSSProperties)
+          : undefined
+      }
+      className={`relative min-h-screen bg-[#0a0a0a] text-[#e5e5e5] ${
+        isScaled ? 'w-[1200px] min-w-[1200px]' : 'w-full'
+      } overflow-x-hidden selection:bg-gold selection:text-black theme-${activeTheme}`}
     >
       {/* Interactive Golden Ambient Particle Canvas (Subtle refined micro-sparkles) */}
       <ParticleCanvas speedMultiplier={particleSpeed} />

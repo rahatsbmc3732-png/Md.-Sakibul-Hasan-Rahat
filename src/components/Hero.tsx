@@ -226,13 +226,13 @@ export const Hero: React.FC<HeroProps> = ({ lang, isOwner = false }) => {
           {/* Master Hero Content: Name Block on Left, Medium Circular Profile Photo on Right */}
           <div
             id="hero-name-block"
-            className="flex flex-col md:flex-row items-center justify-center gap-6 sm:gap-8 md:gap-12 lg:gap-16 w-full filter drop-shadow-[0_10px_35px_rgba(0,0,0,0.98)] drop-shadow-[0_0_50px_rgba(212,175,55,0.25)]"
+            className="flex flex-row items-center justify-center gap-8 sm:gap-10 md:gap-12 lg:gap-16 w-full filter drop-shadow-[0_10px_35px_rgba(0,0,0,0.98)] drop-shadow-[0_0_50px_rgba(212,175,55,0.25)]"
           >
             {/* Left Typography Side: MD SAKIBUL HASAN RAHAT / সাকিব আল হাসান রাহাত */}
-            <div className="flex flex-col items-center md:items-start text-center md:text-left">
+            <div className="flex flex-col items-start text-left">
               <div
                 id="hero-name-md-sakibul-hasan"
-                className="font-sans font-black tracking-[0.02em] sm:tracking-[0.04em] leading-[1.0] text-[6.5vw] xs:text-[6vw] sm:text-[4.8vw] md:text-[3.2vw] lg:text-[2.8vw] xl:text-[42px] 2xl:text-[48px] whitespace-nowrap bg-gradient-to-b from-white via-white/95 to-slate-200 bg-clip-text text-transparent flex items-center gap-2"
+                className="font-sans font-black tracking-[0.03em] sm:tracking-[0.04em] leading-[1.0] text-[28px] sm:text-[34px] md:text-[38px] lg:text-[42px] xl:text-[46px] whitespace-nowrap bg-gradient-to-b from-white via-white/95 to-slate-200 bg-clip-text text-transparent flex items-center gap-2"
               >
                 <span>
                   {lang === 'BN'
@@ -261,7 +261,7 @@ export const Hero: React.FC<HeroProps> = ({ lang, isOwner = false }) => {
               </div>
               <div
                 id="hero-name-rahat"
-                className="font-sans font-black tracking-[-0.02em] leading-[0.85] text-[15vw] xs:text-[14vw] sm:text-[11vw] md:text-[8vw] lg:text-[7vw] xl:text-[104px] 2xl:text-[120px] whitespace-nowrap bg-gradient-to-b from-white via-slate-100 to-slate-300 bg-clip-text text-transparent mt-0.5 sm:mt-1 flex items-center gap-2"
+                className="font-sans font-black tracking-[-0.02em] leading-[0.85] text-[76px] sm:text-[88px] md:text-[96px] lg:text-[104px] xl:text-[116px] whitespace-nowrap bg-gradient-to-b from-white via-slate-100 to-slate-300 bg-clip-text text-transparent mt-0.5 sm:mt-1 flex items-center gap-2"
               >
                 <span>
                   {lang === 'BN'
